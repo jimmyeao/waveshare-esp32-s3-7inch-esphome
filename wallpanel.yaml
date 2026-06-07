@@ -1,0 +1,1174 @@
+# =============================================================================
+#  Waveshare ESP32-S3-Touch-LCD-7  -  Home Assistant wall panel
+#  Tabs: Lights(10, colour) / Music / Spotify / Plex / Climate
+#  Music + Spotify show album art via online_image (two-phase fetch).
+#  Requires ESPHome 2025.8.0+
+# =============================================================================
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_LCD_RGB_RESTART_IN_VSYNC: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+substitutions:
+  name: wall-panel
+  friendly_name: "Wall Panel"
+  ha_base_url: "http://192.168.0.237:8123"          # <-- your HA URL (from your boot log). Verify.
+  spotify_player: media_player.spotifyplus_jimmy_white
+  # Palette: bg 0x0B0E14 surface 0x1A1F2B accent 0xFFB454 text 0xE6E9EF dim 0x7A8290
+
+packages:
+  waveshare:
+    url: https://github.com/inytar/waveshare-esp32-s3-touch-lcd-7-esphome
+    files: [waveshare-esp32-s3-touch-lcd-7.yaml]
+    ref: main
+    refresh: 1d
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  on_client_connected:
+    - delay: 3s
+    - script.execute: sync_tiles
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+logger:
+  hardware_uart: UART0
+  level: DEBUG
+
+http_request:
+  timeout: 10s
+  watchdog_timeout: 15s
+
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      - seconds: 0
+        then:
+          - lvgl.label.update:
+              id: lbl_clock
+              text: !lambda 'return id(ha_time).now().strftime("%H:%M");'
+
+font:
+  - { file: "gfonts://Roboto", id: font_lg, size: 44, bpp: 4 }
+  - { file: "gfonts://Roboto", id: font_md, size: 26, bpp: 4 }
+  - { file: "gfonts://Roboto", id: font_sm, size: 18, bpp: 4 }
+  - { file: "gfonts://Roboto", id: font_xs, size: 16, bpp: 4 }
+
+# Shared album-art buffer. on_download_finished re-points both art widgets.
+online_image:
+  - id: art_music
+    url: "${ha_base_url}/local/wp_music.jpg"
+    format: jpeg
+    type: RGB565
+    resize: 200x200
+    update_interval: never
+    on_download_finished:
+      - lvgl.image.update: { id: img_music_art, src: art_music }
+    on_error:
+      - logger.log: { level: WARN, format: "music art load failed" }
+  - id: art_spotify
+    url: "${ha_base_url}/local/wp_spotify.jpg"
+    format: jpeg
+    type: RGB565
+    resize: 200x200
+    update_interval: never
+    on_download_finished:
+      - lvgl.image.update: { id: img_spotify_art, src: art_spotify }
+    on_error:
+      - logger.log: { level: WARN, format: "spotify art load failed" }
+  - id: art_plex
+    url: "${ha_base_url}/local/wp_plex.jpg"
+    format: jpeg
+    type: RGB565
+    resize: 360x360
+    update_interval: never
+    on_download_finished:
+      - lvgl.image.update: { id: img_plex_art, src: art_plex }
+    on_error:
+      - logger.log: { level: WARN, format: "plex art load failed" }
+
+
+
+binary_sensor:
+  - platform: homeassistant
+    id: light_1_state
+    entity_id: light.all_office_lights
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_2_state
+    entity_id: light.aponair
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_3_state
+    entity_id: light.headphonestand
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_4_state
+    entity_id: light.swlamp
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_5_state
+    entity_id: light.shapes_47e8
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_6_state
+    entity_id: light.pegboardlight
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_7_state
+    entity_id: light.hue_filament_bulb_1_3
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_8_state
+    entity_id: light.hue_lightstrip_1
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_9_state
+    entity_id: light.hue_color_lamp_1
+    on_state:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_10_state
+    entity_id: light.magnuslights
+    on_state:
+      - script.execute: sync_tiles
+
+text_sensor:
+  - platform: homeassistant
+    id: music_title
+    entity_id: media_player.falcon
+    attribute: media_title
+    on_value:
+      - lvgl.label.update:
+          id: lbl_music_title
+          text: !lambda 'return x.empty() ? std::string("Nothing playing") : x;'
+      - delay: 3s
+      - component.update: art_music
+  - platform: homeassistant
+    id: music_artist
+    entity_id: media_player.falcon
+    attribute: media_artist
+    on_value:
+      - lvgl.label.update: { id: lbl_music_artist, text: !lambda 'return x;' }
+  - platform: homeassistant
+    id: music_state
+    entity_id: media_player.falcon
+    on_value:
+      - lvgl.label.update: { id: lbl_music_state, text: !lambda 'return x;' }
+  - platform: homeassistant
+    id: spotify_title
+    entity_id: ${spotify_player}
+    attribute: media_title
+    on_value:
+      - lvgl.label.update:
+          id: lbl_spotify_title
+          text: !lambda 'return x.empty() ? std::string("Nothing playing") : x;'
+      - delay: 3s
+      - component.update: art_spotify
+  - platform: homeassistant
+    id: spotify_artist
+    entity_id: ${spotify_player}
+    attribute: media_artist
+    on_value:
+      - lvgl.label.update: { id: lbl_spotify_artist, text: !lambda 'return x;' }
+  - platform: homeassistant
+    id: spotify_state
+    entity_id: ${spotify_player}
+    on_value:
+      - lvgl.label.update: { id: lbl_spotify_state, text: !lambda 'return x;' }
+  - platform: homeassistant
+    id: climate_action
+    entity_id: climate.thermostat_2
+    attribute: hvac_action
+    on_value:
+      - lvgl.label.update: { id: lbl_climate_action, text: !lambda 'return x;' }
+  - platform: homeassistant
+    id: plex_id
+    entity_id: sensor.plex_active
+  - platform: homeassistant
+    id: plex_title
+    entity_id: sensor.plex_active
+    attribute: title
+    on_value:
+      - lvgl.label.update:
+          id: lbl_plex_title
+          text: !lambda 'return x.empty() ? std::string("Nothing playing") : x;'
+      - delay: 3s
+      - component.update: art_plex
+  - platform: homeassistant
+    id: plex_artist
+    entity_id: sensor.plex_active
+    attribute: artist
+    on_value:
+      - lvgl.label.update: { id: lbl_plex_artist, text: !lambda 'return x;' }
+  - platform: homeassistant
+    id: plex_state
+    entity_id: sensor.plex_active
+    attribute: pstate
+    on_value:
+      - lvgl.label.update: { id: lbl_plex_state, text: !lambda 'return x;' }
+  - platform: homeassistant
+    id: light_1_rgb
+    entity_id: light.all_office_lights
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_2_rgb
+    entity_id: light.aponair
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_3_rgb
+    entity_id: light.headphonestand
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_4_rgb
+    entity_id: light.swlamp
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_5_rgb
+    entity_id: light.shapes_47e8
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_6_rgb
+    entity_id: light.pegboardlight
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_7_rgb
+    entity_id: light.hue_filament_bulb_1_3
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_8_rgb
+    entity_id: light.hue_lightstrip_1
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_9_rgb
+    entity_id: light.hue_color_lamp_1
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+  - platform: homeassistant
+    id: light_10_rgb
+    entity_id: light.magnuslights
+    attribute: rgb_color
+    on_value:
+      - script.execute: sync_tiles
+
+sensor:
+  - platform: homeassistant
+    id: climate_current
+    entity_id: climate.thermostat_2
+    attribute: current_temperature
+    on_value:
+      - lvgl.label.update:
+          id: lbl_climate_current
+          text: !lambda |-
+            char b[16]; snprintf(b, sizeof(b), "%.1f\u00B0", x); return std::string(b);
+  - platform: homeassistant
+    id: climate_target
+    entity_id: climate.thermostat_2
+    attribute: temperature
+    on_value:
+      - lvgl.label.update:
+          id: lbl_climate_target
+          text: !lambda |-
+            char b[16]; snprintf(b, sizeof(b), "%.1f\u00B0", x); return std::string(b);
+
+script:
+  - id: sync_tiles
+    then:
+      - if:
+          condition:
+            lambda: 'return id(light_1_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_1
+                bg_color: !lambda |-
+                  auto s = id(light_1_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_1_lbl
+                text_color: !lambda |-
+                  auto s = id(light_1_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_1, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_1_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_2_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_2
+                bg_color: !lambda |-
+                  auto s = id(light_2_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_2_lbl
+                text_color: !lambda |-
+                  auto s = id(light_2_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_2, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_2_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_3_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_3
+                bg_color: !lambda |-
+                  auto s = id(light_3_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_3_lbl
+                text_color: !lambda |-
+                  auto s = id(light_3_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_3, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_3_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_4_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_4
+                bg_color: !lambda |-
+                  auto s = id(light_4_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_4_lbl
+                text_color: !lambda |-
+                  auto s = id(light_4_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_4, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_4_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_5_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_5
+                bg_color: !lambda |-
+                  auto s = id(light_5_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_5_lbl
+                text_color: !lambda |-
+                  auto s = id(light_5_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_5, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_5_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_6_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_6
+                bg_color: !lambda |-
+                  auto s = id(light_6_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_6_lbl
+                text_color: !lambda |-
+                  auto s = id(light_6_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_6, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_6_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_7_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_7
+                bg_color: !lambda |-
+                  auto s = id(light_7_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_7_lbl
+                text_color: !lambda |-
+                  auto s = id(light_7_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_7, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_7_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_8_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_8
+                bg_color: !lambda |-
+                  auto s = id(light_8_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_8_lbl
+                text_color: !lambda |-
+                  auto s = id(light_8_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_8, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_8_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_9_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_9
+                bg_color: !lambda |-
+                  auto s = id(light_9_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_9_lbl
+                text_color: !lambda |-
+                  auto s = id(light_9_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_9, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_9_lbl, text_color: 0xE6E9EF }
+      - if:
+          condition:
+            lambda: 'return id(light_10_state).state;'
+          then:
+            - lvgl.widget.update:
+                id: tile_10
+                bg_color: !lambda |-
+                  auto s = id(light_10_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3)
+                    return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b);
+                  return lv_color_hex(0xFFB454);
+            - lvgl.label.update:
+                id: tile_10_lbl
+                text_color: !lambda |-
+                  auto s = id(light_10_rgb).state; int r, g, b;
+                  if (sscanf(s.c_str(), "%*[^0-9]%d%*[^0-9]%d%*[^0-9]%d", &r, &g, &b) == 3) {
+                    int lum = (r*299 + g*587 + b*114) / 1000;
+                    return lum > 140 ? lv_color_hex(0x0B0E14) : lv_color_hex(0xE6E9EF);
+                  }
+                  return lv_color_hex(0x0B0E14);
+          else:
+            - lvgl.widget.update: { id: tile_10, bg_color: 0x1A1F2B }
+            - lvgl.label.update:  { id: tile_10_lbl, text_color: 0xE6E9EF }
+
+lvgl:
+  full_refresh: true
+  bg_color: 0x0B0E14
+  text_color: 0xE6E9EF
+  text_font: font_md
+  style_definitions:
+    - { id: tile_base,    bg_color: 0x1A1F2B, bg_opa: COVER, radius: 16, border_width: 0, pad_all: 8 }
+    - { id: ctrl_btn,     bg_color: 0x1A1F2B, bg_opa: COVER, radius: 12, border_width: 0, pad_all: 8 }
+    - { id: tab_active,   bg_color: 0xFFB454, bg_opa: COVER, radius: 10, border_width: 0 }
+    - { id: tab_inactive, bg_color: 0x1A1F2B, bg_opa: COVER, radius: 10, border_width: 0 }
+  pages:
+    - id: page_lights
+      bg_color: 0x0B0E14
+      widgets:
+        - label: { id: lbl_clock, text: "--:--", align: TOP_LEFT, x: 20, y: 12, text_font: font_lg, text_color: 0xE6E9EF }
+        - label: { text: "LIGHTS", align: TOP_RIGHT, x: -20, y: 22, text_font: font_sm, text_color: 0x7A8290 }
+        - button:
+            id: tile_1
+            x: 16
+            y: 64
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_1_lbl, text: "All Lights", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.all_office_lights
+        - button:
+            id: tile_2
+            x: 172
+            y: 64
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_2_lbl, text: "On Air", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.aponair
+        - button:
+            id: tile_3
+            x: 328
+            y: 64
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_3_lbl, text: "HeadPhones", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.headphonestand
+        - button:
+            id: tile_4
+            x: 484
+            y: 64
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_4_lbl, text: "Square Lamp", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.swlamp
+        - button:
+            id: tile_5
+            x: 640
+            y: 64
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_5_lbl, text: "Nano Panels", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.shapes_47e8
+        - button:
+            id: tile_6
+            x: 16
+            y: 240
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_6_lbl, text: "Peg Board", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.pegboardlight
+        - button:
+            id: tile_7
+            x: 172
+            y: 240
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_7_lbl, text: "Industrial", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.hue_filament_bulb_1_3
+        - button:
+            id: tile_8
+            x: 328
+            y: 240
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_8_lbl, text: "Wall Strip", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.hue_lightstrip_1
+        - button:
+            id: tile_9
+            x: 484
+            y: 240
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_9_lbl, text: "Main Light", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.hue_color_lamp_1
+        - button:
+            id: tile_10
+            x: 640
+            y: 240
+            width: 144
+            height: 164
+            styles: tile_base
+            widgets:
+              - label: { id: tile_10_lbl, text: "Under Desk", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.magnuslights
+        - button:
+            x: 8
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_active
+            widgets:
+              - label: { text: "Lights", align: CENTER, text_font: font_xs, text_color: 0x0B0E14 }
+            on_click:
+              - lvgl.page.show: page_lights
+        - button:
+            x: 166
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Music", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_music
+        - button:
+            x: 324
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Spotify", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_spotify
+        - button:
+            x: 482
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Plex", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_plex
+        - button:
+            x: 640
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Climate", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_climate
+    - id: page_music
+      bg_color: 0x0B0E14
+      on_load:
+        - component.update: art_music
+      widgets:
+        - label: { text: "MUSIC", align: TOP_LEFT, x: 20, y: 14, text_font: font_sm, text_color: 0x7A8290 }
+        - image: { id: img_music_art, src: art_music, x: 40, y: 60, width: 200, height: 200 }
+        - label: { id: lbl_music_title,  text: "Nothing playing", align: TOP_LEFT, x: 270, y: 72,  width: 300, long_mode: dot, text_font: font_md }
+        - label: { id: lbl_music_artist, text: "", align: TOP_LEFT, x: 270, y: 116, width: 300, long_mode: dot, text_font: font_sm, text_color: 0x7A8290 }
+        - label: { id: lbl_music_state,  text: "", align: TOP_LEFT, x: 270, y: 150, text_font: font_xs, text_color: 0x7A8290 }
+        - button:
+            x: 40
+            y: 286
+            width: 150
+            height: 70
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Prev", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_previous_track
+                  data:
+                    entity_id: media_player.falcon
+        - button:
+            x: 230
+            y: 286
+            width: 170
+            height: 70
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Play / Pause", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_play_pause
+                  data:
+                    entity_id: media_player.falcon
+        - button:
+            x: 430
+            y: 286
+            width: 150
+            height: 70
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Next", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_next_track
+                  data:
+                    entity_id: media_player.falcon
+        - button:
+            x: 600
+            y: 60
+            width: 160
+            height: 95
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Vol +", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.volume_up
+                  data:
+                    entity_id: media_player.falcon
+        - button:
+            x: 600
+            y: 165
+            width: 160
+            height: 95
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Vol −", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.volume_down
+                  data:
+                    entity_id: media_player.falcon
+        - button:
+            x: 8
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Lights", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_lights
+        - button:
+            x: 166
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_active
+            widgets:
+              - label: { text: "Music", align: CENTER, text_font: font_xs, text_color: 0x0B0E14 }
+            on_click:
+              - lvgl.page.show: page_music
+        - button:
+            x: 324
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Spotify", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_spotify
+        - button:
+            x: 482
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Plex", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_plex
+        - button:
+            x: 640
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Climate", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_climate
+    - id: page_spotify
+      bg_color: 0x0B0E14
+      on_load:
+        - component.update: art_spotify
+      widgets:
+        - label: { text: "SPOTIFY", align: TOP_LEFT, x: 20, y: 14, text_font: font_sm, text_color: 0x7A8290 }
+        - image: { id: img_spotify_art, src: art_spotify, x: 40, y: 60, width: 200, height: 200 }
+        - label: { id: lbl_spotify_title,  text: "Nothing playing", align: TOP_LEFT, x: 270, y: 72,  width: 300, long_mode: dot, text_font: font_md }
+        - label: { id: lbl_spotify_artist, text: "", align: TOP_LEFT, x: 270, y: 116, width: 300, long_mode: dot, text_font: font_sm, text_color: 0x7A8290 }
+        - label: { id: lbl_spotify_state,  text: "", align: TOP_LEFT, x: 270, y: 150, text_font: font_xs, text_color: 0x7A8290 }
+        - button:
+            x: 40
+            y: 286
+            width: 150
+            height: 70
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Prev", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_previous_track
+                  data:
+                    entity_id: ${spotify_player}
+        - button:
+            x: 230
+            y: 286
+            width: 170
+            height: 70
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Play / Pause", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_play_pause
+                  data:
+                    entity_id: ${spotify_player}
+        - button:
+            x: 430
+            y: 286
+            width: 150
+            height: 70
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Next", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.media_next_track
+                  data:
+                    entity_id: ${spotify_player}
+        - button:
+            x: 600
+            y: 60
+            width: 160
+            height: 95
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Vol +", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.volume_up
+                  data:
+                    entity_id: ${spotify_player}
+        - button:
+            x: 600
+            y: 165
+            width: 160
+            height: 95
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Vol −", align: CENTER, text_font: font_sm }
+            on_click:
+              - homeassistant.service:
+                  service: media_player.volume_down
+                  data:
+                    entity_id: ${spotify_player}
+        - button:
+            x: 8
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Lights", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_lights
+        - button:
+            x: 166
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Music", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_music
+        - button:
+            x: 324
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_active
+            widgets:
+              - label: { text: "Spotify", align: CENTER, text_font: font_xs, text_color: 0x0B0E14 }
+            on_click:
+              - lvgl.page.show: page_spotify
+        - button:
+            x: 482
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Plex", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_plex
+        - button:
+            x: 640
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Climate", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_climate
+    - id: page_plex
+      bg_color: 0x0B0E14
+      on_load:
+        - component.update: art_plex
+      widgets:
+        - label: { text: "PLEX", align: TOP_LEFT, x: 20, y: 14, text_font: font_sm, text_color: 0x7A8290 }
+        - image: { id: img_plex_art, src: art_plex, x: 40, y: 52, width: 360, height: 360 }
+        - label: { id: lbl_plex_title,  text: "Nothing playing", align: TOP_LEFT, x: 424, y: 150, width: 352, long_mode: dot, text_font: font_md }
+        - label: { id: lbl_plex_artist, text: "", align: TOP_LEFT, x: 424, y: 200, width: 352, long_mode: dot, text_font: font_sm, text_color: 0x7A8290 }
+        - label: { id: lbl_plex_state,  text: "", align: TOP_LEFT, x: 424, y: 244, text_font: font_xs, text_color: 0x7A8290 }
+        - button:
+            x: 8
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Lights", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_lights
+        - button:
+            x: 166
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Music", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_music
+        - button:
+            x: 324
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Spotify", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_spotify
+        - button:
+            x: 482
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_active
+            widgets:
+              - label: { text: "Plex", align: CENTER, text_font: font_xs, text_color: 0x0B0E14 }
+            on_click:
+              - lvgl.page.show: page_plex
+        - button:
+            x: 640
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Climate", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_climate
+    - id: page_climate
+      bg_color: 0x0B0E14
+      widgets:
+        - label: { text: "CLIMATE", align: TOP_LEFT, x: 20, y: 14, text_font: font_sm, text_color: 0x7A8290 }
+        - label: { id: lbl_climate_current, text: "--", align: TOP_MID, x: 0, y: 54, text_font: font_lg, text_color: 0xFFB454 }
+        - label: { text: "Target", align: TOP_MID, x: 0, y: 146, text_font: font_xs, text_color: 0x7A8290 }
+        - label: { id: lbl_climate_target, text: "--", align: TOP_MID, x: 0, y: 170, text_font: font_lg }
+        - button:
+            x: 170
+            y: 162
+            width: 96
+            height: 96
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "−", align: CENTER, text_font: font_lg }
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_temperature
+                  data:
+                    entity_id: climate.thermostat_2
+                  data_template:
+                    temperature: "{{ t }}"
+                  variables:
+                    t: 'return id(climate_target).state - 0.5;'
+        - button:
+            x: 534
+            y: 162
+            width: 96
+            height: 96
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "+", align: CENTER, text_font: font_lg }
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_temperature
+                  data:
+                    entity_id: climate.thermostat_2
+                  data_template:
+                    temperature: "{{ t }}"
+                  variables:
+                    t: 'return id(climate_target).state + 0.5;'
+        - label: { id: lbl_climate_action, text: "", align: TOP_MID, x: 0, y: 272, text_font: font_sm, text_color: 0x7A8290 }
+        - button:
+            x: 300
+            y: 312
+            width: 200
+            height: 60
+            styles: ctrl_btn
+            widgets:
+              - label: { text: "Boost", align: CENTER, text_font: font_sm, text_color: 0xFFB454 }
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_preset_mode
+                  data:
+                    entity_id: climate.thermostat_2
+                    preset_mode: boost
+        - button:
+            x: 8
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Lights", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_lights
+        - button:
+            x: 166
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Music", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_music
+        - button:
+            x: 324
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Spotify", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_spotify
+        - button:
+            x: 482
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_inactive
+            widgets:
+              - label: { text: "Plex", align: CENTER, text_font: font_xs, text_color: 0x7A8290 }
+            on_click:
+              - lvgl.page.show: page_plex
+        - button:
+            x: 640
+            y: 422
+            width: 150
+            height: 50
+            styles: tab_active
+            widgets:
+              - label: { text: "Climate", align: CENTER, text_font: font_xs, text_color: 0x0B0E14 }
+            on_click:
+              - lvgl.page.show: page_climate
