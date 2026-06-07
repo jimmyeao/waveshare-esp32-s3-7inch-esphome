@@ -1,0 +1,30 @@
+# Add to your `template:` block (configuration.yaml or a templates file).
+# ESPHome can't wildcard-match HA entities, so the "any playing Plex player"
+# logic lives here: this single sensor's STATE is the entity_id of the active
+# Plex client, and its ATTRIBUTES carry that client's now-playing info.
+# (Attributes are used instead of separate sensors because art URLs can exceed
+# the 255-char limit on template sensor *states*.)
+
+template:
+  - sensor:
+      - name: "Plex Active"
+        unique_id: plex_active
+        state: >
+          {% set p = states.media_player
+               | selectattr('entity_id','search','plex')
+               | selectattr('state','in',['playing','paused'])
+               | list | first %}
+          {{ p.entity_id if p else 'none' }}
+        attributes:
+          title: >
+            {% set e = states('sensor.plex_active') %}
+            {{ state_attr(e,'media_title') if e not in ['none','unknown'] else 'Nothing playing' }}
+          artist: >
+            {% set e = states('sensor.plex_active') %}
+            {{ state_attr(e,'media_series_title') or state_attr(e,'media_artist') or '' if e not in ['none','unknown'] else '' }}
+          pstate: >
+            {% set e = states('sensor.plex_active') %}
+            {{ states(e) if e not in ['none','unknown'] else 'idle' }}
+          picture: >
+            {% set e = states('sensor.plex_active') %}
+            {{ state_attr(e,'entity_picture') if e not in ['none','unknown'] else '' }}
