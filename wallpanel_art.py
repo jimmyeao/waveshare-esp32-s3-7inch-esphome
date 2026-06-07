@@ -6,9 +6,9 @@
 # main loop for tens of seconds and hangs the device. So we resize on the HA
 # side and serve a small static JPEG the panel can decode in milliseconds.
 #
-# Requires the "pyscript" integration with allow_all_imports enabled:
-#   pyscript:
-#     allow_all_imports: true
+# Requires the "pyscript" integration (install via HACS, then add it through
+# Settings -> Devices & Services -> Add Integration -> Pyscript, and enable
+# "Allow All Imports" in its options).
 
 import requests
 from PIL import Image
