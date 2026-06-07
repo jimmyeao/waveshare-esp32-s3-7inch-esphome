@@ -1,0 +1,1 @@
+# waveshare-esp32-s3-7inch-esphome
