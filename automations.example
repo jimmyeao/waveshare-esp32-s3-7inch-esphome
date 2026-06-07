@@ -1,0 +1,39 @@
+# Append these to your automations.yaml (root is a list of automations).
+# Each one re-resizes a player's art whenever its artwork changes.
+# Replace the media_player entity IDs with your own.
+
+- id: wallpanel_art_music
+  alias: Wallpanel art - music
+  trigger:
+    - platform: state
+      entity_id: media_player.falcon          # <-- your Music Assistant player
+      attribute: entity_picture
+  action:
+    - service: pyscript.wp_resize_art
+      data:
+        entity_id: media_player.falcon
+        name: music
+
+- id: wallpanel_art_spotify
+  alias: Wallpanel art - spotify
+  trigger:
+    - platform: state
+      entity_id: media_player.spotifyplus_jimmy_white   # <-- your Spotify player
+      attribute: entity_picture
+  action:
+    - service: pyscript.wp_resize_art
+      data:
+        entity_id: media_player.spotifyplus_jimmy_white
+        name: spotify
+
+- id: wallpanel_art_plex
+  alias: Wallpanel art - plex
+  trigger:
+    - platform: state
+      entity_id: sensor.plex_active            # from templates.example.yaml
+      attribute: picture
+  action:
+    - service: pyscript.wp_resize_art
+      data:
+        entity_id: "{{ states('sensor.plex_active') }}"
+        name: plex
