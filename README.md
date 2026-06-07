@@ -85,17 +85,13 @@ ESPHome's `online_image` decodes the **full** image before resizing, and media a
 
 **Setup:**
 
-1. Install **pyscript** (HACS → "Pyscript Python scripting", from the repo root `custom-components/pyscript`). Add to `configuration.yaml`:
-   ```yaml
-   pyscript:
-     allow_all_imports: true     # required, or `import requests`/PIL is blocked
-   ```
-   Restart HA. Confirm `pyscript.reload` appears in Developer Tools → Actions.
-2. Copy `homeassistant/pyscript/wallpanel_art.py` to `/config/pyscript/`. Reload pyscript. Confirm `pyscript.wp_resize_art` now exists as an action.
-3. Make sure `/config/www/` exists (create it if not).
-4. Add the automations from `automations.example.yaml` (edit entity IDs).
-5. For the Plex tab, add the sensor from `templates.example.yaml`.
-6. Play something on each source so `wp_music.jpg` / `wp_spotify.jpg` / `wp_plex.jpg` get written to `/config/www/`. Verify in a browser: `http://<ha>:8123/local/wp_music.jpg`.
+1. Install **pyscript** via HACS ("Pyscript Python scripting", from the repo root `custom-components/pyscript`), then **restart HA**.
+2. Add the integration: **Settings → Devices & Services → Add Integration → Pyscript**, and enable **Allow All Imports** in its options (required, or `import requests`/PIL is blocked). This is done through the UI, not `configuration.yaml`. Confirm `pyscript.reload` appears in Developer Tools → Actions.
+3. Copy `homeassistant/pyscript/wallpanel_art.py` to `/config/pyscript/`. Reload pyscript. Confirm `pyscript.wp_resize_art` now exists as an action.
+4. Make sure `/config/www/` exists (create it if not).
+5. Add the automations from `automations.example.yaml` (edit entity IDs).
+6. For the Plex tab, add the sensor from `templates.example.yaml`.
+7. Play something on each source so `wp_music.jpg` / `wp_spotify.jpg` / `wp_plex.jpg` get written to `/config/www/`. Verify in a browser: `http://<ha>:8123/local/wp_music.jpg`.
 
 **How it flows:** a player's art changes → the automation calls `wp_resize_art` → pyscript downloads, shrinks (≤400 px), and writes `/config/www/wp_<source>.jpg` → the panel re-fetches that static `/local/` URL on tab load and ~3 s after a track change. Each tab has its own image buffer, so art never bleeds between tabs.
 
